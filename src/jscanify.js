@@ -144,59 +144,53 @@
     extractPaper(image, resultWidth, resultHeight, cornerPoints) {
       const canvas = document.createElement("canvas");
       const img = cv.imread(image);
-      const maxContour = cornerPoints ? null : this.findPaperContour(img);
-
-      if(maxContour == null && cornerPoints === undefined){
-        return null;
+      let warpedDst;
+      try {
+        warpedDst = this.extractPaperMat(img, resultWidth, resultHeight, cornerPoints);
+        if (!warpedDst) return null;
+        cv.imshow(canvas, warpedDst);
+        return canvas;
+      } finally {
+        img.delete();
+        if (warpedDst) warpedDst.delete();
       }
+    }
 
-      const {
-        topLeftCorner,
-        topRightCorner,
-        bottomLeftCorner,
-        bottomRightCorner,
-      } = cornerPoints || this.getCornerPoints(maxContour, img);
-      let warpedDst = new cv.Mat();
-
-      let dsize = new cv.Size(resultWidth, resultHeight);
-      let srcTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
-        topLeftCorner.x,
-        topLeftCorner.y,
-        topRightCorner.x,
-        topRightCorner.y,
-        bottomLeftCorner.x,
-        bottomLeftCorner.y,
-        bottomRightCorner.x,
-        bottomRightCorner.y,
-      ]);
-
-      let dstTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
-        0,
-        0,
-        resultWidth,
-        0,
-        0,
-        resultHeight,
-        resultWidth,
-        resultHeight,
-      ]);
-
-      let M = cv.getPerspectiveTransform(srcTri, dstTri);
-      cv.warpPerspective(
-        img,
-        warpedDst,
-        M,
-        dsize,
-        cv.INTER_LINEAR,
-        cv.BORDER_CONSTANT,
-        new cv.Scalar()
-      );
-
-      cv.imshow(canvas, warpedDst);
-
-      img.delete()
-      warpedDst.delete()
-      return canvas;
+    /**
+     * Parker worker adapter: the upstream perspective algorithm on an owned Mat.
+     * Caller owns input and returned Mat. No DOM or image network access required.
+     */
+    extractPaperMat(img, resultWidth, resultHeight, cornerPoints) {
+      const maxContour = cornerPoints ? null : this.findPaperContour(img);
+      let srcTri, dstTri, M, warpedDst;
+      try {
+        if (!maxContour && !cornerPoints) return null;
+        const { topLeftCorner, topRightCorner, bottomLeftCorner, bottomRightCorner } =
+          cornerPoints || this.getCornerPoints(maxContour, img);
+        srcTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
+          topLeftCorner.x, topLeftCorner.y,
+          topRightCorner.x, topRightCorner.y,
+          bottomLeftCorner.x, bottomLeftCorner.y,
+          bottomRightCorner.x, bottomRightCorner.y,
+        ]);
+        dstTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
+          0, 0, resultWidth, 0, 0, resultHeight, resultWidth, resultHeight,
+        ]);
+        M = cv.getPerspectiveTransform(srcTri, dstTri);
+        warpedDst = new cv.Mat();
+        cv.warpPerspective(img, warpedDst, M,
+          new cv.Size(resultWidth, resultHeight), cv.INTER_LINEAR,
+          cv.BORDER_CONSTANT, new cv.Scalar());
+        const result = warpedDst;
+        warpedDst = null;
+        return result;
+      } finally {
+        if (srcTri) srcTri.delete();
+        if (dstTri) dstTri.delete();
+        if (M) M.delete();
+        if (maxContour) maxContour.delete();
+        if (warpedDst) warpedDst.delete();
+      }
     }
 
     /**
